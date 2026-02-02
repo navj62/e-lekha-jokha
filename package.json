@@ -1,0 +1,31 @@
+{
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "@types/pg": "^8.16.0",
+    "prisma": "^6.19.2"
+  },
+  "dependencies": {
+    "@clerk/nextjs": "^6.37.1",
+    "@prisma/client": "^6.19.2",
+    "localtunnel": "^2.0.2",
+    "svix": "^1.84.1"
+  },
+  "name": "elekhajokha",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/navj62/e-lekha-jokha.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/navj62/e-lekha-jokha/issues"
+  },
+  "homepage": "https://github.com/navj62/e-lekha-jokha#readme",
+  "description": ""
+}
