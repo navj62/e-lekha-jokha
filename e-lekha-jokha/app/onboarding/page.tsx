@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function OnboardingPage() {
+  /* ---------------- HOOKS ---------------- */
   const { user, isLoaded } = useUser();
   const router = useRouter();
 
@@ -32,18 +33,17 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // ---- AUTH GUARDS ----
+  /* ---------------- AUTH GUARDS ---------------- */
   if (!isLoaded) return null;
 
   if (!user) {
-    router.push("/sign-in");
+    router.replace("/sign-in");
     return null;
   }
 
-  // TS-safe alias (IMPORTANT)
-  const currentUser = user;
+  const currentUser = user; // TS-safe alias
 
-  // ---- HELPERS ----
+  /* ---------------- HELPERS ---------------- */
   const update = (key: string, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -61,6 +61,12 @@ export default function OnboardingPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+
+    if (!form.shopName || !form.address || !form.mobile) {
+      setError("Please fill all fields");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -70,19 +76,22 @@ export default function OnboardingPage() {
         body: JSON.stringify(form),
       });
 
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to save onboarding details");
+      }
 
-      router.push("/dashboard");
-    } catch {
-      setError("Failed to save onboarding details");
+      router.replace("/dashboard");
+    } catch (err: any) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   }
 
-  // ---- UI ----
+  /* ---------------- UI ---------------- */
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4">
+    <div className="min-h-screen flex items-center justify-center px-4">
       <Card className="w-full max-w-lg shadow-xl">
         <CardHeader className="text-center space-y-1">
           <CardTitle className="text-2xl font-semibold">
@@ -136,7 +145,7 @@ export default function OnboardingPage() {
               onChange={(v) => update("address", v)}
             />
 
-            <InputField
+            <MobileField
               label="Mobile number"
               onChange={(v) => update("mobile", v)}
             />
@@ -160,7 +169,10 @@ export default function OnboardingPage() {
               </Alert>
             )}
 
-            <Button className="w-full" disabled={loading}>
+            <Button
+              className="w-full"
+              disabled={loading || imageUploading}
+            >
               {loading ? (
                 <Loader2 className="animate-spin" />
               ) : (
@@ -174,7 +186,8 @@ export default function OnboardingPage() {
   );
 }
 
-// ---- REUSABLE FIELD ----
+/* ---------------- REUSABLE FIELDS ---------------- */
+
 function InputField({
   label,
   onChange,
@@ -185,7 +198,29 @@ function InputField({
   return (
     <div className="space-y-1">
       <Label>{label}</Label>
-      <Input onChange={(e) => onChange(e.target.value)} required />
+      <Input onChange={(e) => onChange(e.target.value.trim())} required />
+    </div>
+  );
+}
+
+function MobileField({
+  label,
+  onChange,
+}: {
+  label: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label>{label}</Label>
+      <Input
+        type="tel"
+        inputMode="numeric"
+        pattern="[0-9]{10}"
+        placeholder="10 digit mobile number"
+        onChange={(e) => onChange(e.target.value.trim())}
+        required
+      />
     </div>
   );
 }

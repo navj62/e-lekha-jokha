@@ -7,6 +7,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {  useUser } from "@clerk/nextjs";
+
 import {
   Card,
   CardHeader,
@@ -31,6 +33,15 @@ export default function SignIn() {
   if (!isLoaded) {
     return null;
   }
+  const { user, isLoaded: userLoaded } = useUser();
+
+if (!isLoaded || !userLoaded) return null;
+
+if (user) {
+  router.replace("/dashboard");
+  return null;
+}
+
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -46,9 +57,10 @@ export default function SignIn() {
       });
 
       if (result.status === "complete") {
-        await setActive({ session: result.createdSessionId });
-        router.push("/dashboard");
-      } else {
+  await setActive({ session: result.createdSessionId });
+  router.push("/dashboard");
+}
+ else {
         console.error(JSON.stringify(result, null, 2));
       }
     } catch (err: any) {

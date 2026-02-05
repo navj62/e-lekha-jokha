@@ -12,22 +12,27 @@ const clerk = createClerkClient({
 
 export async function POST(req: Request) {
   const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+
+  // Webhook must NEVER fail
   if (!WEBHOOK_SECRET) {
     console.error("WEBHOOK_SECRET missing");
     return new Response("OK", { status: 200 });
   }
 
+  /* ---------------- READ BODY & HEADERS ---------------- */
   const body = await req.text();
-  const headerList = await headers();
+  const headerList = await headers(); // ✅ NO await (IMPORTANT)
 
   const svixId = headerList.get("svix-id");
   const svixTimestamp = headerList.get("svix-timestamp");
   const svixSignature = headerList.get("svix-signature");
 
   if (!svixId || !svixTimestamp || !svixSignature) {
+    console.error("Missing Svix headers");
     return new Response("OK", { status: 200 });
   }
 
+  /* ---------------- VERIFY WEBHOOK ---------------- */
   const wh = new Webhook(WEBHOOK_SECRET);
   let evt: WebhookEvent;
 
@@ -42,25 +47,25 @@ export async function POST(req: Request) {
     return new Response("OK", { status: 200 });
   }
 
-  /* =========================
-     USER CREATED
-  ========================== */
+  /* ---------------- USER CREATED ---------------- */
   if (evt.type === "user.created") {
     const user = evt.data;
 
     const username =
       user.username ||
+      (user.public_metadata as any)?.username ||
       (user.unsafe_metadata as any)?.username ||
-      `user_${user.id.slice(0, 8)}`; // ✅ fallback
+      `user_${user.id.slice(0, 8)}`;
 
-    const email = user.email_addresses?.[0]?.email_address ?? "";
-    const phone =
-      user.phone_numbers?.[0]?.phone_number ||
-      (user.unsafe_metadata as any)?.mobile ||
+    const email = user.email_addresses?.[0]?.email_address ?? null;
+    const mobile =
+      user.phone_numbers?.[0]?.phone_number ??
+      (user.public_metadata as any)?.mobile ??
       null;
 
-    const shopName = (user.unsafe_metadata as any)?.shopName ?? "My Shop";
-    const address = (user.unsafe_metadata as any)?.address ?? "";
+    const firstName = user.first_name ?? null;
+    const lastName = user.last_name ?? null;
+    const profileImageUrl = user.image_url ?? null;
 
     try {
       const dbUser = await prisma.user.upsert({
@@ -68,34 +73,38 @@ export async function POST(req: Request) {
         update: {
           username,
           email,
-          mobile: phone,
+          mobile,
+          firstName,
+          lastName,
+          profileImageUrl,
         },
         create: {
           clerkUserId: user.id,
           username,
           email,
-          mobile: phone,
-          shopName,
-          address,
+          mobile,
+          firstName,
+          lastName,
+          profileImageUrl,
           isActive: true,
         },
       });
 
+      // Sync metadata back to Clerk
       await clerk.users.updateUser(user.id, {
         publicMetadata: {
           dbUserId: dbUser.id,
           role: "owner",
+          onboarded: false,
         },
       });
     } catch (err) {
       console.error("DB sync failed:", err);
-      // ❗ DO NOT FAIL THE WEBHOOK
+      // ❗ Never throw — webhook must return 200
     }
   }
 
-  /* =========================
-     USER DELETED
-  ========================== */
+  /* ---------------- USER DELETED ---------------- */
   if (evt.type === "user.deleted") {
     try {
       await prisma.user.update({
