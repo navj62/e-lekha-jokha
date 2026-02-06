@@ -1,7 +1,7 @@
 // BACKEND: app/api/customers/search/route.ts
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { prisma } from "@/lib/prisma";
+import{ prisma } from "@/lib/prisma";
 
 type CustomerWithPledges = {
   id: string;
