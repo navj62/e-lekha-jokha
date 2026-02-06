@@ -23,18 +23,17 @@ export async function GET(
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
+    // 🔴 INCLUDE PLEDGES HERE
     const customer = await prisma.customer.findFirst({
       where: {
         id: customerId,
         userId: user.id,
         deletedAt: null,
       },
-      select: {
-        id: true,
-        name: true,
-        mobile: true,
-        address: true,
-        aadharNo: true,
+      include: {
+        pledges: {
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
@@ -44,9 +43,6 @@ export async function GET(
         { status: 404 }
       );
     }
-
-    // ✅ SAFE LOGGING (no confusion)
-    console.log('Fetched customer:', JSON.stringify(customer, null, 2));
 
     return NextResponse.json({ customer }, { status: 200 });
   } catch (error) {

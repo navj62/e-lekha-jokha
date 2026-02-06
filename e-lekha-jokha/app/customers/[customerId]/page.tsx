@@ -5,14 +5,6 @@ import { useParams, useRouter } from 'next/navigation';
 
 /* ================= TYPES ================= */
 
-type Customer = {
-  id: string;
-  name: string;
-  mobile: string | null;
-  address: string;
-  aadharNo: string | null;
-};
-
 type Pledge = {
   id: string;
   pledgeDate: string;
@@ -23,14 +15,22 @@ type Pledge = {
   status: string;
 };
 
+type CustomerWithPledges = {
+  id: string;
+  name: string;
+  mobile: string | null;
+  address: string;
+  aadharNo: string | null;
+  pledges: Pledge[];
+};
+
 /* ================= PAGE ================= */
 
 export default function CustomerDetailsPage() {
   const { customerId } = useParams<{ customerId: string }>();
   const router = useRouter();
 
-  const [customer, setCustomer] = useState<Customer | null>(null);
-  const [pledges, setPledges] = useState<Pledge[]>([]);
+  const [customer, setCustomer] = useState<CustomerWithPledges | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -38,32 +38,23 @@ export default function CustomerDetailsPage() {
   useEffect(() => {
     if (!customerId) return;
 
-    // 🔴 RESET STATE ON ID CHANGE
     setCustomer(null);
     setError('');
     setLoading(true);
 
-    async function fetchData() {
+    async function fetchCustomer() {
       try {
-        const customerRes = await fetch(
-          `/api/customers/${customerId}`,
-          {
-            cache: 'no-store', // 🔴 VERY IMPORTANT
-          }
-        );
+        const res = await fetch(`/api/customers/${customerId}`, {
+          cache: 'no-store',
+        });
 
-        const contentType = customerRes.headers.get('content-type');
-        let customerData = null;
+        const data = await res.json();
 
-        if (contentType?.includes('application/json')) {
-          customerData = await customerRes.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to load customer');
         }
 
-        if (!customerRes.ok) {
-          throw new Error(customerData?.error || 'Failed to load customer');
-        }
-
-        setCustomer(customerData.customer);
+        setCustomer(data.customer);
       } catch (err: any) {
         setError(err.message || 'Something went wrong');
       } finally {
@@ -71,9 +62,8 @@ export default function CustomerDetailsPage() {
       }
     }
 
-    fetchData();
+    fetchCustomer();
   }, [customerId]);
-
 
   /* ================= STATES ================= */
 
@@ -93,6 +83,7 @@ export default function CustomerDetailsPage() {
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
+
       {/* ===== CUSTOMER INFO ===== */}
       <div className="border rounded p-4 bg-gray-50">
         <h1 className="text-2xl font-bold mb-2">
@@ -104,9 +95,7 @@ export default function CustomerDetailsPage() {
         <p><b>Aadhar:</b> {customer.aadharNo || 'N/A'}</p>
 
         <button
-          onClick={() =>
-            router.push(`/customers/${customerId}/pledge`)
-          }
+          onClick={() => router.push(`/customers/${customerId}/pledge`)}
           className="mt-4 bg-blue-600 text-white px-4 py-2 rounded"
         >
           ➕ Add Pledge
@@ -117,7 +106,7 @@ export default function CustomerDetailsPage() {
       <div>
         <h2 className="text-xl font-semibold mb-3">Pledges</h2>
 
-        {pledges.length === 0 ? (
+        {customer.pledges.length === 0 ? (
           <p className="text-gray-500">No pledges found</p>
         ) : (
           <div className="overflow-x-auto">
@@ -132,7 +121,7 @@ export default function CustomerDetailsPage() {
                 </tr>
               </thead>
               <tbody>
-                {pledges.map((p) => (
+                {customer.pledges.map((p) => (
                   <tr key={p.id}>
                     <td className="border p-2">
                       {new Date(p.pledgeDate).toLocaleDateString()}
