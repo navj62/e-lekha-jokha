@@ -1,7 +1,8 @@
 // FRONTEND: app/customers/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const filterOptions = [
   { value: "all", label: "All Fields" },
@@ -30,22 +31,46 @@ export default function CustomersPage() {
   const [filter, setFilter] = useState("all");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     fetchCustomers();
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
   }, []);
 
   async function fetchCustomers() {
     setLoading(true);
+    setError(null);
     const query = new URLSearchParams();
     if (search) query.set("q", search);
     if (filter) query.set("filter", filter);
     if (status) query.set("status", status);
 
-    const res = await fetch(`/api/customers/search?${query.toString()}`);
-    const data = await res.json();
-    setCustomers(data.customers || []);
-    setLoading(false);
+    try {
+      const res = await fetch(`/api/customers/search?${query.toString()}`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to fetch customers right now.");
+      }
+      setCustomers(data.customers || []);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unexpected error.";
+      setCustomers([]);
+      setError(message);
+      setToastMessage(message);
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+      toastTimeoutRef.current = setTimeout(() => setToastMessage(null), 4000);
+    } finally {
+      setLoading(false);
+    }
   }
 
   function handleSearch(e: React.FormEvent) {
@@ -101,23 +126,38 @@ export default function CustomersPage() {
 
       {loading ? (
         <p>Loading...</p>
+      ) : error ? (
+        <Alert variant="destructive">
+          <AlertTitle>Unable to load customers</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       ) : customers.length === 0 ? (
         <p>No customers found.</p>
       ) : (
         <ul className="space-y-4">
           {customers.map((cust) => (
-            <li key={cust.id} className="border p-4 rounded shadow-sm bg-white">
-              <h2 className="font-semibold text-lg">{cust.name}</h2>
-              <p className="text-sm text-gray-500">
-                Pledges: {cust.pledgeCount}
-              </p>
-              <p className="text-sm text-gray-500">
-                Latest Item: {cust.latestItem || "—"}
-              </p>
+            <li key={cust.id}>
+              <a
+                href={`/customers/${cust.id}`}
+                className="block border p-4 rounded shadow-sm bg-white hover:border-gray-300 hover:shadow transition"
+              >
+                <h2 className="font-semibold text-lg">{cust.name}</h2>
+                <p className="text-sm text-gray-500">
+                  Pledges: {cust.pledgeCount}
+                </p>
+                <p className="text-sm text-gray-500">
+                  Latest Item: {cust.latestItem || "—"}
+                </p>
+              </a>
             </li>
           ))}
         </ul>
       )}
+      {toastMessage ? (
+        <div className="fixed bottom-6 right-6 z-50 rounded-lg bg-gray-900 text-white px-4 py-3 shadow-lg text-sm">
+          {toastMessage}
+        </div>
+      ) : null}
     </div>
   );
 }
