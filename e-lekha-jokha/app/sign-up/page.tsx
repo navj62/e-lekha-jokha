@@ -1,153 +1,319 @@
 "use client";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 import { useState } from "react";
-import { useSignIn, useUser } from "@clerk/nextjs";
+import { useSignUp } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
   Card,
   CardHeader,
   CardTitle,
-  CardContent,
-  CardFooter,
   CardDescription,
+  CardContent,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Eye, EyeOff, BookOpen, Loader2 } from "lucide-react";
+import { Loader2, Eye, EyeOff } from "lucide-react";
 
-export default function SignIn() {
-  /* ---------------- HOOKS (ALWAYS FIRST) ---------------- */
-  const { isLoaded, signIn, setActive } = useSignIn();
-  const { user, isLoaded: userLoaded } = useUser();
+export default function SignUpPage() {
+  const { isLoaded, signUp, setActive } = useSignUp();
   const router = useRouter();
 
-  const [identifier, setIdentifier] = useState("");
-  const [password, setPassword] = useState("");
+  const [form, setForm] = useState({
+    firstName: "",
+    lastName: "",
+    username: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+  });
+
+  const [pendingVerification, setPendingVerification] = useState(false);
+  const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
-  /* ---------------- GUARDS ---------------- */
-  if (!isLoaded || !userLoaded) return null;
+  if (!isLoaded) return null;
 
-  if (user) {
-    router.replace("/dashboard");
-    return null;
-  }
+  const update = (k: string, v: string) =>
+    setForm((p) => ({ ...p, [k]: v }));
 
-  /* ---------------- SIGN IN ---------------- */
+  /* ---------- Step 1: Create account & send OTP ---------- */
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
 
-    if (!signIn) {
-      setError("Sign-in not ready. Please retry.");
+    if (form.password !== form.confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
+    if (form.password.length < 8) {
+      setError("Password must be at least 8 characters");
       return;
     }
 
     setLoading(true);
-
     try {
-      const result = await signIn.create({
-        identifier: identifier.trim(),
-        password,
+      await signUp!.create({
+        firstName: form.firstName,
+        lastName: form.lastName,
+        username: form.username,
+        emailAddress: form.email,
+        password: form.password,
       });
 
-      if (
-        result.status === "complete" &&
-        result.createdSessionId &&
-        setActive
-      ) {
-        await setActive({ session: result.createdSessionId });
-        router.replace("/dashboard");
-      }
+      await signUp!.prepareEmailAddressVerification({
+        strategy: "email_code",
+      });
+
+      setPendingVerification(true);
     } catch (err: any) {
       setError(
-        err.errors?.[0]?.message ||
-          "Invalid credentials. Please try again."
+        err.errors?.[0]?.longMessage ||
+          err.errors?.[0]?.message ||
+          "Sign up failed. Please try again."
       );
     } finally {
       setLoading(false);
     }
   }
 
-  /* ---------------- UI ---------------- */
+  /* ---------- Step 2: Verify OTP ---------- */
+  async function verify(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+
+    if (code.length < 6) {
+      setError("Please enter the complete 6-digit code");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await signUp!.attemptEmailAddressVerification({ code });
+      if (res.status === "complete") {
+        await setActive!({ session: res.createdSessionId });
+        router.push("/onboarding");
+      } else {
+        setError("Verification incomplete. Please try again.");
+      }
+    } catch (err: any) {
+      setError(
+        err.errors?.[0]?.longMessage ||
+          err.errors?.[0]?.message ||
+          "Invalid code. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* ---------- Resend OTP with 30s cooldown ---------- */
+  async function resendCode() {
+    if (resendCooldown > 0) return;
+    setError("");
+    try {
+      await signUp!.prepareEmailAddressVerification({ strategy: "email_code" });
+      setResendCooldown(30);
+      const interval = setInterval(() => {
+        setResendCooldown((c) => {
+          if (c <= 1) { clearInterval(interval); return 0; }
+          return c - 1;
+        });
+      }, 1000);
+    } catch {
+      setError("Could not resend code. Please try again.");
+    }
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <Card className="w-full max-w-md shadow-xl">
-        <CardHeader className="flex flex-col items-center space-y-1">
-          <div className="bg-primary/10 p-3 rounded-full mb-2">
-            <BookOpen className="h-8 w-8 text-primary" />
-          </div>
-          <CardTitle className="text-3xl font-bold">
-            E-Lekha-Jokha
-          </CardTitle>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4">
+      <Card className="w-full max-w-md shadow-lg">
+        <CardHeader className="text-center space-y-1">
+          <CardTitle className="text-2xl font-bold">E-Lekha-Jokha</CardTitle>
           <CardDescription>
-            Sign in to your account
+            {pendingVerification
+              ? `Enter the 6-digit code sent to ${form.email}`
+              : "Create your account to get started"}
           </CardDescription>
         </CardHeader>
 
         <CardContent>
-          <form onSubmit={submit} className="space-y-4">
-            <div>
-              <Label>Email or Username</Label>
-              <Input
-                value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
-                required
-              />
-            </div>
+          {!pendingVerification ? (
+            /* ---------- Details Form ---------- */
+            <form onSubmit={submit} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <InputField
+                  label="First name"
+                  placeholder="John"
+                  onChange={(v) => update("firstName", v)}
+                />
+                <InputField
+                  label="Last name"
+                  placeholder="Doe"
+                  onChange={(v) => update("lastName", v)}
+                />
+              </div>
 
-            <div>
-              <Label>Password</Label>
-              <div className="relative">
+              <InputField
+                label="Username"
+                placeholder="johndoe123"
+                autoComplete="username"
+                onChange={(v) => update("username", v)}
+              />
+
+              <InputField
+                label="Email"
+                placeholder="john@example.com"
+                type="email"
+                autoComplete="email"
+                onChange={(v) => update("email", v)}
+              />
+
+              <div className="space-y-1">
+                <Label className="text-sm">Password</Label>
+                <div className="relative">
+                  <Input
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Min. 8 characters"
+                    autoComplete="new-password"
+                    onChange={(e) => update("password", e.target.value)}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-sm">Confirm password</Label>
+                <div className="relative">
+                  <Input
+                    type={showConfirm ? "text" : "password"}
+                    placeholder="Re-enter your password"
+                    autoComplete="new-password"
+                    onChange={(e) => update("confirmPassword", e.target.value)}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirm((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showConfirm ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              <Button className="w-full" disabled={loading}>
+                {loading ? <Loader2 className="animate-spin" /> : "Create account"}
+              </Button>
+
+              <p className="text-center text-sm text-slate-500">
+                Already have an account?{" "}
+                <a href="/sign-in" className="text-slate-900 font-medium hover:underline">
+                  Sign in
+                </a>
+              </p>
+            </form>
+          ) : (
+            /* ---------- OTP Form ---------- */
+            <form onSubmit={verify} className="space-y-3">
+              <div className="space-y-1">
+                <Label className="text-sm">Verification code</Label>
                 <Input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  placeholder="Enter 6-digit code"
+                  value={code}
+                  onChange={(e) =>
+                    setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
                   required
                 />
+              </div>
+
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              <Button className="w-full" disabled={loading}>
+                {loading ? <Loader2 className="animate-spin" /> : "Verify & continue"}
+              </Button>
+
+              <div className="flex items-center justify-between text-sm text-slate-500">
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2"
+                  className="hover:underline"
+                  onClick={() => {
+                    setPendingVerification(false);
+                    setCode("");
+                    setError("");
+                  }}
                 >
-                  {showPassword ? <EyeOff /> : <Eye />}
+                  ← Back
+                </button>
+
+                <button
+                  type="button"
+                  onClick={resendCode}
+                  disabled={resendCooldown > 0}
+                  className="hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend code"}
                 </button>
               </div>
-            </div>
-
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            <Button className="w-full" disabled={loading}>
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Signing in…
-                </>
-              ) : (
-                "Sign In"
-              )}
-            </Button>
-          </form>
+            </form>
+          )}
         </CardContent>
-
-        <CardFooter className="justify-center text-sm">
-          <Link href="/sign-up" className="hover:underline">
-            Create an account
-          </Link>
-        </CardFooter>
       </Card>
+    </div>
+  );
+}
+
+/* ---------- Reusable field ---------- */
+function InputField({
+  label,
+  type = "text",
+  placeholder,
+  autoComplete,
+  onChange,
+}: {
+  label: string;
+  type?: string;
+  placeholder?: string;
+  autoComplete?: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-sm">{label}</Label>
+      <Input
+        type={type}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        onChange={(e) => onChange(e.target.value)}
+        required
+      />
     </div>
   );
 }
