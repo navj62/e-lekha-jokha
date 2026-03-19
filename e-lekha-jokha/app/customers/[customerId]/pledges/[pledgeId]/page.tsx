@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
@@ -32,8 +32,12 @@ type PledgeResponse = {
 };
 
 export default function PledgeDetailPage() {
-  const params = useParams<{ pledgeId: string }>();
+  // ✅ Read both customerId and pledgeId from params
+  const params = useParams<{ customerId: string; pledgeId: string }>();
+  const customerId = params?.customerId;
   const pledgeId = params?.pledgeId;
+  const router = useRouter();
+
   const [data, setData] = useState<PledgeResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,9 +60,7 @@ export default function PledgeDetailPage() {
         const message = err instanceof Error ? err.message : "Unexpected error";
         setError(message);
         setToastMessage(message);
-        if (toastTimeoutRef.current) {
-          clearTimeout(toastTimeoutRef.current);
-        }
+        if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
         toastTimeoutRef.current = setTimeout(() => setToastMessage(null), 4000);
       } finally {
         setLoading(false);
@@ -66,11 +68,7 @@ export default function PledgeDetailPage() {
     };
 
     loadPledge();
-    return () => {
-      if (toastTimeoutRef.current) {
-        clearTimeout(toastTimeoutRef.current);
-      }
-    };
+    return () => { if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current); };
   }, [pledgeId]);
 
   const formatDate = (value?: string | null) => {
@@ -88,11 +86,17 @@ export default function PledgeDetailPage() {
     );
   }
 
+  // ✅ Check if pledge is active
+  const isActive = data?.pledge.status === "ACTIVE";
+
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
       <div>
-        <Link href="/customers" className="text-sm text-gray-500 hover:underline">
-          ← Back to Customers
+        <Link
+          href={customerId ? `/customers/${customerId}` : "/customers"}
+          className="text-sm text-gray-500 hover:underline"
+        >
+          ← Back to Customer
         </Link>
         <h1 className="text-2xl font-bold mt-2">Pledge Details</h1>
       </div>
@@ -132,6 +136,7 @@ export default function PledgeDetailPage() {
                   </p>
                 </div>
               </div>
+
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -139,12 +144,19 @@ export default function PledgeDetailPage() {
                 >
                   Edit
                 </button>
+
+                {/* ✅ Fixed release button — uses router, disabled when not ACTIVE */}
                 <button
                   type="button"
-                  className="bg-yellow-600 text-white px-4 py-2 rounded text-sm hover:bg-yellow-700"
+                  disabled={!isActive}
+                  onClick={() =>
+                    router.push(`/customers/${customerId}/pledges/${pledgeId}/release`)
+                  }
+                  className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Release
                 </button>
+
                 <button
                   type="button"
                   className="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700"
@@ -183,9 +195,7 @@ export default function PledgeDetailPage() {
               </div>
               <div className="grid grid-cols-2 gap-4 px-6 py-4 text-sm">
                 <p className="text-gray-500">Release Date</p>
-                <p className="font-medium text-gray-800">
-                  {formatDate(data.pledge.releaseDate)}
-                </p>
+                <p className="font-medium text-gray-800">{formatDate(data.pledge.releaseDate)}</p>
               </div>
               <div className="grid grid-cols-2 gap-4 px-6 py-4 text-sm">
                 <p className="text-gray-500">Interest Rate</p>
@@ -223,11 +233,12 @@ export default function PledgeDetailPage() {
           </section>
         </div>
       )}
-      {toastMessage ? (
+
+      {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 rounded-lg bg-gray-900 text-white px-4 py-3 shadow-lg text-sm">
           {toastMessage}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

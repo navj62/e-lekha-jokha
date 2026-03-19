@@ -44,17 +44,13 @@ export default function CustomerDetailPage() {
       try {
         const res = await fetch(`/api/customers/${customerId}`);
         const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data?.error || "Unable to load customer details.");
-        }
+        if (!res.ok) throw new Error(data?.error || "Unable to load customer details.");
         setCustomer(data.customer);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unexpected error";
         setError(message);
         setToastMessage(message);
-        if (toastTimeoutRef.current) {
-          clearTimeout(toastTimeoutRef.current);
-        }
+        if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
         toastTimeoutRef.current = setTimeout(() => setToastMessage(null), 4000);
       } finally {
         setLoading(false);
@@ -62,11 +58,7 @@ export default function CustomerDetailPage() {
     };
 
     loadCustomer();
-    return () => {
-      if (toastTimeoutRef.current) {
-        clearTimeout(toastTimeoutRef.current);
-      }
-    };
+    return () => { if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current); };
   }, [customerId]);
 
   if (!customerId) {
@@ -86,9 +78,7 @@ export default function CustomerDetailPage() {
 
   const showToast = (message: string) => {
     setToastMessage(message);
-    if (toastTimeoutRef.current) {
-      clearTimeout(toastTimeoutRef.current);
-    }
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     toastTimeoutRef.current = setTimeout(() => setToastMessage(null), 4000);
   };
 
@@ -100,9 +90,7 @@ export default function CustomerDetailPage() {
     try {
       const res = await fetch(`/api/pledges/${pledgeId}`, { method: "DELETE" });
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error || "Unable to delete pledge.");
-      }
+      if (!res.ok) throw new Error(data?.error || "Unable to delete pledge.");
       setCustomer({
         ...customer,
         pledges: customer.pledges.filter((pledge) => pledge.id !== pledgeId),
@@ -143,11 +131,8 @@ export default function CustomerDetailPage() {
               <div className="h-16 w-16 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden">
                 {customer.customerImg ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={customer.customerImg}
-                    alt={customer.name}
-                    className="h-full w-full object-cover"
-                  />
+                  <img src={customer.customerImg} alt={customer.name}
+                    className="h-full w-full object-cover" />
                 ) : (
                   <span className="text-gray-400 text-xl font-semibold">
                     {customer.name.charAt(0).toUpperCase()}
@@ -160,22 +145,19 @@ export default function CustomerDetailPage() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="border border-gray-300 px-4 py-2 rounded text-sm hover:bg-gray-50"
-              >
+              <button type="button"
+                className="border border-gray-300 px-4 py-2 rounded text-sm hover:bg-gray-50">
                 Change Photo
               </button>
+              {/* ✅ Updated from add-pledge → pledges/add */}
               <Link
-                href={`/customers/${customerId}/add-pledge`}
+                href={`/customers/${customerId}/pledges/add`}
                 className="bg-yellow-600 text-white px-4 py-2 rounded text-sm hover:bg-yellow-700"
               >
                 Add Item
               </Link>
-              <button
-                type="button"
-                className="bg-yellow-600 text-white px-4 py-2 rounded text-sm hover:bg-yellow-700"
-              >
+              <button type="button"
+                className="bg-yellow-600 text-white px-4 py-2 rounded text-sm hover:bg-yellow-700">
                 Edit
               </button>
             </div>
@@ -241,8 +223,9 @@ export default function CustomerDetailPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex gap-2">
+                            {/* ✅ Updated from /pledges/${id} → /customers/${customerId}/pledges/${id} */}
                             <Link
-                              href={`/pledges/${pledge.id}`}
+                              href={`/customers/${customerId}/pledges/${pledge.id}`}
                               className="bg-yellow-600 text-white px-3 py-1.5 rounded text-xs hover:bg-yellow-700"
                             >
                               View
@@ -266,11 +249,12 @@ export default function CustomerDetailPage() {
           </section>
         </div>
       )}
-      {toastMessage ? (
+
+      {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 rounded-lg bg-gray-900 text-white px-4 py-3 shadow-lg text-sm">
           {toastMessage}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
