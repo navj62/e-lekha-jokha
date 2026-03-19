@@ -13,6 +13,9 @@ import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 
+/* ------------------------------------------------------------------ */
+/*  Types                                                               */
+/* ------------------------------------------------------------------ */
 interface Pledge {
   id: string;
   pledgeDate: string;
@@ -30,38 +33,81 @@ interface Pledge {
   customer: { id: string; name: string; address: string };
 }
 
-const FREQUENCY: Record<string, number> = { MONTHLY: 12, QUARTERLY: 4, YEARLY: 1 };
-
+/* ------------------------------------------------------------------ */
+/*  Constants                                                           */
+/* ------------------------------------------------------------------ */
 const COMPOUNDING_OPTIONS = [
-  { value: "MONTHLY",   label: "Monthly"   },
-  { value: "QUARTERLY", label: "Quarterly" },
-  { value: "YEARLY",    label: "Yearly"    },
+  { value: "MONTHLY",   label: "Monthly",   n: 12 },
+  { value: "QUARTERLY", label: "Quarterly", n: 4  },
+  { value: "YEARLY",    label: "Yearly",    n: 1  },
 ];
 
 /* ------------------------------------------------------------------ */
+/*  Helpers                                                             */
+/* ------------------------------------------------------------------ */
+
+/** Returns whole months and leftover days between two dates */
+function monthsAndDays(from: Date, to: Date) {
+  let years  = to.getFullYear()  - from.getFullYear();
+  let months = to.getMonth()     - from.getMonth();
+  let days   = to.getDate()      - from.getDate();
+
+  if (days < 0) {
+    months -= 1;
+    // days remaining in the previous month
+    const prevMonth = new Date(to.getFullYear(), to.getMonth(), 0);
+    days += prevMonth.getDate();
+  }
+  if (months < 0) {
+    years  -= 1;
+    months += 12;
+  }
+
+  return { totalMonths: years * 12 + months, days };
+}
+
+/* ------------------------------------------------------------------ */
 /*  Simple Interest                                                     */
-/*  I = P × R × T  (T in months)                                      */
+/*  I = P × (rate/12/100) × months                                     */
+/*  With optional 15-day rounding rule                                 */
 /* ------------------------------------------------------------------ */
 function calcSimpleInterest(
   principal: number,
   annualRate: number,
   fromDate: Date,
-  toDate: Date
+  toDate: Date,
+  roundHalfMonth: boolean
 ) {
-  const msPerMonth = 1000 * 60 * 60 * 24 * 30.4375;
-  const months = (toDate.getTime() - fromDate.getTime()) / msPerMonth;
-  const monthlyRate = annualRate / 12 / 100;
-  const interest = principal * monthlyRate * months;
+  const { totalMonths, days } = monthsAndDays(fromDate, toDate);
+
+  let months = totalMonths;
+
+  if (roundHalfMonth) {
+    // < 15 days leftover → +1 month, ≥ 15 days → +2 months
+    if (days > 0 && days < 15)  months += 1;
+    else if (days >= 15)         months += 2;
+  } else {
+    // Standard: count exact fractional months
+    months = totalMonths + days / 30.4375;
+  }
+
+  // Ensure minimum 1 month
+  months = Math.max(1, months);
+
+  const monthlyRate    = annualRate / 12 / 100;
+  const interest       = principal * monthlyRate * months;
+
   return {
-    months:          Math.max(0, Math.round(months * 100) / 100),
-    totalInterest:   Math.max(0, Math.round(interest * 100) / 100),
-    receivableAmount: Math.max(0, Math.round((principal + interest) * 100) / 100),
+    months:           Math.round(months * 100) / 100,
+    totalInterest:    Math.round(interest * 100) / 100,
+    receivableAmount: Math.round((principal + interest) * 100) / 100,
   };
 }
 
 /* ------------------------------------------------------------------ */
 /*  Compound Interest                                                   */
-/*  A = P × (1 + r/n)^(n×t)                                           */
+/*  A = P × (1 + r/n)^(n × t)                                         */
+/*  t = exact years between dates                                      */
 /* ------------------------------------------------------------------ */
 function calcCompoundInterest(
   principal: number,
@@ -70,16 +116,28 @@ function calcCompoundInterest(
   fromDate: Date,
   toDate: Date
 ) {
-  const n = FREQUENCY[compounding] ?? 12;
+  const option = COMPOUNDING_OPTIONS.find((o) => o.value === compounding);
+  const n = option?.n ?? 12;
+
   const r = annualRate / 100;
-  const t = (toDate.getTime() - fromDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
-  const amount = principal * Math.pow(1 + r / n, n * t);
+
+  // Precise day count
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const days = Math.floor((toDate.getTime() - fromDate.getTime()) / msPerDay);
+  const t = days / 365; // years (using 365, not 365.25, for precision)
+
+  const amount          = principal * Math.pow(1 + r / n, n * t);
+  const totalInterest   = amount - principal;
+  const receivableAmount = amount;
+
   return {
-    totalInterest:    Math.max(0, Math.round((amount - principal) * 100) / 100),
-    receivableAmount: Math.max(0, Math.round(amount * 100) / 100),
+    days,
+    totalInterest:    Math.round(totalInterest   * 100) / 100,
+    receivableAmount: Math.round(receivableAmount * 100) / 100,
   };
 }
 
+/* ------------------------------------------------------------------ */
 function fmt(n: number) {
   return new Intl.NumberFormat("en-IN", {
     style: "currency", currency: "INR", maximumFractionDigits: 2,
@@ -95,7 +153,9 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-/* ------------------------------------------------------------------ */
+/* ================================================================== */
+/*  Page                                                                */
+/* ================================================================== */
 export default function ReleasePledgePage() {
   const params = useParams<{ customerId: string; pledgeId: string }>();
   const router = useRouter();
@@ -105,11 +165,11 @@ export default function ReleasePledgePage() {
   const [fetchErr, setFetchErr] = useState("");
 
   const today = new Date().toISOString().split("T")[0];
-  const [releaseDate,  setReleaseDate]  = useState(today);
-  const [compounding,  setCompounding]  = useState<string>("MONTHLY");
 
-  // ✅ Default = simple interest
-  const [useCompound, setUseCompound] = useState(false);
+  const [releaseDate,    setReleaseDate]    = useState(today);
+  const [compounding,    setCompounding]    = useState("MONTHLY");
+  const [useCompound,    setUseCompound]    = useState(false);   // simple by default
+  const [roundHalfMonth, setRoundHalfMonth] = useState(false);   // 15-day rule off by default
 
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState("");
@@ -132,13 +192,13 @@ export default function ReleasePledgePage() {
     ? new Date(releaseDate) < new Date(pledge.pledgeDate)
     : false;
 
-  // ✅ Calculate based on selected mode
   const simpleCalc = pledge && !isBeforePledge
     ? calcSimpleInterest(
         Number(pledge.loanAmount),
         Number(pledge.interestRate),
         new Date(pledge.pledgeDate),
-        new Date(releaseDate)
+        new Date(releaseDate),
+        roundHalfMonth
       )
     : null;
 
@@ -193,7 +253,7 @@ export default function ReleasePledgePage() {
     );
   }
 
-  /* --- Fetch error --- */
+  /* --- Error --- */
   if (fetchErr || !pledge) {
     return (
       <div className="max-w-2xl mx-auto p-6">
@@ -207,7 +267,7 @@ export default function ReleasePledgePage() {
   /* --- Success --- */
   if (released) {
     return (
-      <div className="max-w-2xl mx-auto p-6 flex flex-col items-center justify-center gap-4 min-h-[40vh] text-center">
+      <div className="max-w-2xl mx-auto p-6 flex flex-col items-center gap-4 min-h-[40vh] justify-center text-center">
         <CheckCircle size={52} className="text-green-500" />
         <h2 className="text-2xl font-bold">Pledge Released</h2>
         <p className="text-gray-500 text-sm">
@@ -227,6 +287,7 @@ export default function ReleasePledgePage() {
 
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
+
       {/* Header */}
       <div>
         <Link
@@ -241,9 +302,7 @@ export default function ReleasePledgePage() {
             {pledge.status}
           </Badge>
         </div>
-        <p className="text-sm text-gray-500 mt-1">
-          Review the details and confirm the release.
-        </p>
+        <p className="text-sm text-gray-500 mt-1">Review and confirm the release.</p>
       </div>
 
       {pledge.status !== "ACTIVE" && (
@@ -286,7 +345,7 @@ export default function ReleasePledgePage() {
         </Card>
       )}
 
-      {/* Calculation */}
+      {/* Calculation Card */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-semibold">Release Calculation</CardTitle>
@@ -304,13 +363,13 @@ export default function ReleasePledgePage() {
               onChange={(e) => setReleaseDate(e.target.value)}
             />
             {isBeforePledge && (
-              <p className="text-xs text-red-500 mt-1">
+              <p className="text-xs text-red-500">
                 Release date cannot be before the pledge date.
               </p>
             )}
           </div>
 
-          {/* ✅ Interest type toggle */}
+          {/* Interest Type Toggle */}
           <div className="space-y-1">
             <Label className="text-sm font-medium">Interest Type</Label>
             <div className="flex gap-2">
@@ -323,7 +382,7 @@ export default function ReleasePledgePage() {
                     : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
                 }`}
               >
-                Simple Interest
+                Simple
               </button>
               <button
                 type="button"
@@ -334,12 +393,37 @@ export default function ReleasePledgePage() {
                     : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
                 }`}
               >
-                Compound Interest
+                Compound
               </button>
             </div>
           </div>
 
-          {/* Compounding duration — only shown when compound is selected */}
+          {/* Simple: 15-day rounding rule */}
+          {!useCompound && (
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">15-day rounding rule</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  &lt; 15 days → +1 month &nbsp;|&nbsp; ≥ 15 days → +2 months
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRoundHalfMonth((v) => !v)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  roundHalfMonth ? "bg-black" : "bg-gray-200"
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                    roundHalfMonth ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+          )}
+
+          {/* Compound: duration selector */}
           {useCompound && (
             <div className="space-y-1">
               <Label className="text-sm font-medium">Compounding Duration</Label>
@@ -359,30 +443,37 @@ export default function ReleasePledgePage() {
                     onClick={() => setCompounding(pledge.compoundingDuration)}
                     className="text-xs text-blue-600 hover:underline whitespace-nowrap"
                   >
-                    Reset to original
+                    Reset
                   </button>
                 )}
               </div>
               {compounding !== pledge.compoundingDuration && (
                 <p className="text-xs text-orange-500">
-                  Original: {COMPOUNDING_OPTIONS.find(o => o.value === pledge.compoundingDuration)?.label}
+                  Original: {COMPOUNDING_OPTIONS.find((o) => o.value === pledge.compoundingDuration)?.label}
                 </p>
               )}
             </div>
           )}
 
-          {/* Result */}
+          {/* Result breakdown */}
           {calc && !isBeforePledge ? (
             <div className="rounded-md bg-gray-50 border divide-y">
-              {/* Show months for simple interest */}
+              {/* Simple: show months */}
               {!useCompound && simpleCalc && (
                 <div className="flex justify-between px-4 py-3 text-sm">
                   <span className="text-gray-500">Duration</span>
                   <span className="font-medium">{simpleCalc.months} months</span>
                 </div>
               )}
+              {/* Compound: show days */}
+              {useCompound && compoundCalc && (
+                <div className="flex justify-between px-4 py-3 text-sm">
+                  <span className="text-gray-500">Duration</span>
+                  <span className="font-medium">{compoundCalc.days} days</span>
+                </div>
+              )}
               <div className="flex justify-between px-4 py-3 text-sm">
-                <span className="text-gray-500">Principal Amount</span>
+                <span className="text-gray-500">Principal</span>
                 <span className="font-medium">{fmt(Number(pledge.loanAmount))}</span>
               </div>
               <div className="flex justify-between px-4 py-3 text-sm">
@@ -394,16 +485,16 @@ export default function ReleasePledgePage() {
                 <span className="font-bold text-green-700 text-base">{fmt(calc.receivableAmount)}</span>
               </div>
             </div>
-          ) : isBeforePledge ? null : (
+          ) : !isBeforePledge ? (
             <div className="rounded-md bg-gray-50 border px-4 py-3 text-sm text-gray-400 text-center">
               Select a valid release date to calculate.
             </div>
-          )}
+          ) : null}
 
-          {/* ✅ Side by side comparison when compound is selected */}
+          {/* Comparison table when compound is active */}
           {useCompound && simpleCalc && compoundCalc && !isBeforePledge && (
             <div className="rounded-md border divide-y text-sm">
-              <div className="grid grid-cols-3 px-4 py-2 bg-gray-50 font-medium text-gray-500 text-xs uppercase">
+              <div className="grid grid-cols-3 px-4 py-2 bg-gray-50 text-xs uppercase text-gray-500 font-medium">
                 <span></span>
                 <span className="text-center">Simple</span>
                 <span className="text-center">Compound</span>
@@ -420,6 +511,7 @@ export default function ReleasePledgePage() {
               </div>
             </div>
           )}
+
         </CardContent>
       </Card>
 
@@ -440,7 +532,9 @@ export default function ReleasePledgePage() {
         </Button>
         <Button
           variant="outline"
-          onClick={() => router.push(`/customers/${params.customerId}/pledges/${params.pledgeId}`)}
+          onClick={() =>
+            router.push(`/customers/${params.customerId}/pledges/${params.pledgeId}`)
+          }
         >
           Cancel
         </Button>
